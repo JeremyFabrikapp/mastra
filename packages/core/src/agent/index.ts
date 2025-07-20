@@ -40,6 +40,7 @@ import type {
   AgentStreamOptions,
   AiMessageType,
   MastraLanguageModel,
+  PromptCacheConfig,
   ToolsetsInput,
   ToolsInput,
 } from './types';
@@ -64,6 +65,7 @@ export class Agent<
   #memory?: MastraMemory;
   #defaultGenerateOptions: AgentGenerateOptions;
   #defaultStreamOptions: AgentStreamOptions;
+  promptCacheConfig?: PromptCacheConfig;
   tools: TTools;
   /** @deprecated This property is deprecated. Use evals instead. */
   metrics: TMetrics;
@@ -124,6 +126,13 @@ export class Agent<
     } else {
       this.voice = new DefaultVoice();
     }
+
+    // Initialize cache configuration with defaults if not provided
+    this.promptCacheConfig = config.cacheConfig || {
+      enabled: true,
+      type: 'ephemeral',
+      messageTypes: ['system'],
+    };
   }
 
   public hasOwnMemory(): boolean {
@@ -676,10 +685,31 @@ export class Agent<
           this.logger.debug(`[Agents:${this.name}] - Starting generation`, { runId });
         }
 
+        const systemContent = instructions || `${this.instructions}.`;
+        const provider = this.llm.getProvider();
+
         const systemMessage: CoreMessage = {
           role: 'system',
-          content: instructions || `${this.instructions}.`,
+          content: systemContent,
         };
+
+        if (this.promptCacheConfig?.enabled !== false && this.promptCacheConfig?.messageTypes?.includes('system')) {
+          const cacheType = this.promptCacheConfig?.type || 'ephemeral';
+
+          if (provider.includes('anthropic')) {
+            systemMessage.providerOptions = {
+              anthropic: { cacheControl: { type: cacheType } },
+            };
+          } else if (provider.includes('openai')) {
+            systemMessage.providerOptions = {
+              openai: { cacheControl: { type: cacheType } },
+            };
+          } else if (provider.includes('bedrock')) {
+            systemMessage.providerOptions = {
+              bedrock: { cachePoint: { type: cacheType === 'ephemeral' ? 'default' : cacheType } },
+            };
+          }
+        }
 
         let coreMessages = messages;
         let threadIdToUse = threadId;
@@ -928,25 +958,59 @@ export class Agent<
     }: AgentGenerateOptions<Z> = Object.assign({}, this.#defaultGenerateOptions, generateOptions);
     let messagesToUse: CoreMessage[] = [];
 
+    // Helper function to add cache control to messages based on role
+    const addCacheControlToMessage = (message: CoreMessage): CoreMessage => {
+      // Skip if caching is disabled or message type is not in the list
+      if (
+        this.promptCacheConfig?.enabled === false ||
+        !this.promptCacheConfig?.messageTypes?.includes(message.role as any)
+      ) {
+        return message;
+      }
+
+      const cacheType = this.promptCacheConfig?.type || 'ephemeral';
+      const provider = this.llm.getProvider();
+
+      // Clone the message to avoid modifying the original
+      const messageWithCache = { ...message };
+
+      // Add provider-specific cache control options
+      if (provider.includes('anthropic')) {
+        messageWithCache.providerOptions = {
+          anthropic: { cacheControl: { type: cacheType } },
+        };
+      } else if (provider.includes('openai')) {
+        messageWithCache.providerOptions = {
+          openai: { cacheControl: { type: cacheType } },
+        };
+      } else if (provider.includes('bedrock')) {
+        messageWithCache.providerOptions = {
+          bedrock: { cachePoint: { type: cacheType === 'ephemeral' ? 'default' : cacheType } },
+        };
+      }
+
+      return messageWithCache;
+    };
+
     if (typeof messages === `string`) {
       messagesToUse = [
-        {
+        addCacheControlToMessage({
           role: 'user',
           content: messages,
-        },
+        }),
       ];
     } else if (Array.isArray(messages)) {
       messagesToUse = messages.map(message => {
         if (typeof message === `string`) {
-          return {
+          return addCacheControlToMessage({
             role: 'user',
             content: message,
-          };
+          });
         }
-        return message as CoreMessage;
+        return addCacheControlToMessage(message as CoreMessage);
       });
     } else {
-      messagesToUse = [messages];
+      messagesToUse = [addCacheControlToMessage(messages as CoreMessage)];
     }
 
     const runIdToUse = runId || randomUUID();
@@ -1101,22 +1165,60 @@ export class Agent<
 
     let messagesToUse: CoreMessage[] = [];
 
+    // Helper function to add cache control to messages based on role
+    const addCacheControlToMessage = (message: CoreMessage): CoreMessage => {
+      // Skip if caching is disabled or message type is not in the list
+      if (
+        this.promptCacheConfig?.enabled === false ||
+        !this.promptCacheConfig?.messageTypes?.includes(message.role as any)
+      ) {
+        return message;
+      }
+
+      const cacheType = this.promptCacheConfig?.type || 'ephemeral';
+      const provider = this.llm.getProvider();
+
+      // Clone the message to avoid modifying the original
+      const messageWithCache = { ...message };
+
+      // Add provider-specific cache control options
+      switch (provider) {
+        case 'anthropic':
+          messageWithCache.providerOptions = {
+            anthropic: { cacheControl: { type: cacheType } },
+          };
+          break;
+        case 'openai':
+          messageWithCache.providerOptions = {
+            openai: { cacheControl: { type: cacheType } },
+          };
+          break;
+        case 'bedrock':
+          messageWithCache.providerOptions = {
+            bedrock: { cachePoint: { type: cacheType === 'ephemeral' ? 'default' : cacheType } },
+          };
+          break;
+      }
+
+      return messageWithCache;
+    };
+
     if (typeof messages === `string`) {
       messagesToUse = [
-        {
+        addCacheControlToMessage({
           role: 'user',
           content: messages,
-        },
+        }),
       ];
     } else {
       messagesToUse = messages.map(message => {
         if (typeof message === `string`) {
-          return {
+          return addCacheControlToMessage({
             role: 'user',
             content: message,
-          };
+          });
         }
-        return message as CoreMessage;
+        return addCacheControlToMessage(message as CoreMessage);
       });
     }
 

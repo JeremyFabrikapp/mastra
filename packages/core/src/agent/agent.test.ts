@@ -642,4 +642,82 @@ describe('agent', () => {
       expect(capturedValue).toBe('runtimeContext-value');
     }, 500000);
   });
+
+  describe('prompt caching', () => {
+    it('should add cache control to system messages by default', async () => {
+      const agent = new Agent({
+        name: 'Cache Test Agent',
+        instructions: 'You are a test agent',
+        model: openai('gpt-4o'),
+      });
+
+      // Use a spy to check if the messages have cache control
+      const llmTextSpy = vi.spyOn(agent.llm, '__text');
+
+      await agent.generate('Test message');
+
+      // Check if the system message has cache control
+      const callArgs = llmTextSpy.mock.calls[0][0];
+      const systemMessage = callArgs.messages[0];
+
+      expect(systemMessage.role).toBe('system');
+      expect(systemMessage.providerOptions).toBeDefined();
+      expect(systemMessage.providerOptions?.openai).toBeDefined();
+      expect(systemMessage.providerOptions?.openai?.cacheControl).toEqual({ type: 'ephemeral' });
+    });
+
+    it('should respect cacheConfig settings', async () => {
+      const agent = new Agent({
+        name: 'Cache Config Test Agent',
+        instructions: 'You are a test agent',
+        model: openai('gpt-4o'),
+        cacheConfig: {
+          enabled: true,
+          type: 'default',
+          messageTypes: ['system', 'user'],
+        },
+      });
+
+      // Use a spy to check if the messages have cache control
+      const llmTextSpy = vi.spyOn(agent.llm, '__text');
+
+      await agent.generate('Test user message');
+
+      // Check if the system message has cache control
+      const callArgs = llmTextSpy.mock.calls[0][0];
+      const systemMessage = callArgs.messages[0];
+      const userMessage = callArgs.messages[1];
+
+      expect(systemMessage.role).toBe('system');
+      expect(systemMessage.providerOptions).toBeDefined();
+      expect(systemMessage.providerOptions?.openai?.cacheControl).toEqual({ type: 'default' });
+
+      expect(userMessage.role).toBe('user');
+      expect(userMessage.providerOptions).toBeDefined();
+      expect(userMessage.providerOptions?.openai?.cacheControl).toEqual({ type: 'default' });
+    });
+
+    it('should not add cache control when disabled', async () => {
+      const agent = new Agent({
+        name: 'Cache Disabled Test Agent',
+        instructions: 'You are a test agent',
+        model: openai('gpt-4o'),
+        cacheConfig: {
+          enabled: false,
+        },
+      });
+
+      // Use a spy to check if the messages have cache control
+      const llmTextSpy = vi.spyOn(agent.llm, '__text');
+
+      await agent.generate('Test message');
+
+      // Check if the system message has cache control
+      const callArgs = llmTextSpy.mock.calls[0][0];
+      const systemMessage = callArgs.messages[0];
+
+      expect(systemMessage.role).toBe('system');
+      expect(systemMessage.providerOptions).toBeUndefined();
+    });
+  });
 });

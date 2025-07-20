@@ -33,6 +33,18 @@ export type ToolsetsInput = Record<string, ToolsInput>;
 
 export type MastraLanguageModel = LanguageModelV1;
 
+/**
+ * Configuration for prompt caching
+ */
+export interface PromptCacheConfig {
+  /** Enable or disable prompt caching */
+  enabled?: boolean;
+  /** Cache type to use (ephemeral, persistent, etc.) */
+  type?: 'ephemeral' | 'default';
+  /** Which message types to cache */
+  messageTypes?: Array<'system' | 'user' | 'assistant' | 'tool'>;
+}
+
 export interface AgentConfig<
   TAgentId extends string = string,
   TTools extends ToolsInput = ToolsInput,
@@ -50,6 +62,8 @@ export interface AgentConfig<
   evals?: TMetrics;
   memory?: MastraMemory;
   voice?: CompositeVoice;
+  /** Configuration for prompt caching */
+  cacheConfig?: PromptCacheConfig;
 }
 
 /**
