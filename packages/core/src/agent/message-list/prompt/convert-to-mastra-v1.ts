@@ -99,7 +99,6 @@ export function convertToV1Messages(messages: Array<MastraMessageV2>) {
       case 'assistant': {
         if (message.content.parts != null) {
           let currentStep = 0;
-          let blockHasToolInvocations = false;
           let block: MastraMessageContentV2['parts'] = [];
 
           function processBlock() {
@@ -152,7 +151,8 @@ export function convertToV1Messages(messages: Array<MastraMessageV2>) {
                 typeof content !== `string` &&
                 Array.isArray(content) &&
                 content.length === 1 &&
-                content[0]?.type === `text`
+                content[0]?.type === `text` &&
+                !content.some(c => c.type === `tool-call`)
                   ? message?.content?.content || content
                   : content,
             });
@@ -184,15 +184,16 @@ export function convertToV1Messages(messages: Array<MastraMessageV2>) {
 
             // updates for next block
             block = [];
-            blockHasToolInvocations = false;
             currentStep++;
           }
 
           for (const part of message.content.parts) {
             switch (part.type) {
               case 'text': {
-                if (blockHasToolInvocations) {
-                  processBlock(); // text must come before tool invocations
+                // Process current block if it has tool invocations before adding text
+                const hasToolInvocations = block.some(p => p.type === 'tool-invocation');
+                if (hasToolInvocations) {
+                  processBlock();
                 }
                 block.push(part);
                 break;
@@ -207,7 +208,6 @@ export function convertToV1Messages(messages: Array<MastraMessageV2>) {
                   processBlock();
                 }
                 block.push(part);
-                blockHasToolInvocations = true;
                 break;
               }
             }
@@ -221,7 +221,9 @@ export function convertToV1Messages(messages: Array<MastraMessageV2>) {
         const toolInvocations = message.content.toolInvocations;
 
         if (toolInvocations == null || toolInvocations.length === 0) {
-          pushOrCombine({ role: 'assistant', ...fields, content: content || '', type: 'text' });
+          if (message.content.parts == null) {
+            pushOrCombine({ role: 'assistant', ...fields, content: content || '', type: 'text' });
+          }
           break;
         }
 
