@@ -88,6 +88,7 @@ export type MemoryConfig = {
           instructions?: DynamicArgument<string>;
         };
   };
+  format?: 'v1' | 'v2';
 };
 
 export type SharedMemoryConfig = {

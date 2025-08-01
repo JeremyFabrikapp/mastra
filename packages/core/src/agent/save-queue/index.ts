@@ -89,6 +89,7 @@ export class SaveQueueManager {
       await this.memory.saveMessages({
         messages: newMessages,
         memoryConfig,
+        format: memoryConfig?.format || 'v2',
       });
     }
   }
